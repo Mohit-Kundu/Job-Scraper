@@ -6,6 +6,7 @@ import hashlib
 from googlesearch import search
 import schedule
 import logging
+import os
 
 # Set up logging
 logging.basicConfig(
@@ -19,25 +20,27 @@ class JobScraper:
         self.load_config(config_path)
         self.setup_timezone()
         self.last_scrape_time = None  # Track when we last scraped
+        
+        # Set up logging
+        self.setup_logging()
 
     def load_config(self, config_path):
         with open(config_path, 'r') as f:
             self.config = json.load(f)
         
-        # Convert time strings to datetime objects
+        # Convert time strings to time objects
         self.start_time = datetime.strptime(
             self.config['start_time'], 
-            '%Y-%m-%d %H:%M:%S'
-        )
+            '%H:%M:%S'
+        ).time()
+        
         self.end_time = datetime.strptime(
             self.config['end_time'], 
-            '%Y-%m-%d %H:%M:%S'
-        )
+            '%H:%M:%S'
+        ).time()
 
     def setup_timezone(self):
         self.timezone = pytz.timezone(self.config['time_zone'])
-        self.start_time = self.timezone.localize(self.start_time)
-        self.end_time = self.timezone.localize(self.end_time)
 
     def generate_job_hash(self, title, link):
         """Generate a unique hash for a job based on its title and link"""
@@ -52,70 +55,99 @@ class JobScraper:
         self.seen_jobs.add(job_hash)
         return True
 
+    def setup_logging(self):
+        # Create logs directory if it doesn't exist
+        if not os.path.exists('logs'):
+            os.makedirs('logs')
+            
+        # Set up logging configuration
+        log_file = f'logs/job_scraper_{datetime.now().strftime("%Y%m%d")}.log'
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(log_file),
+                logging.StreamHandler()  # This will also print to console
+            ]
+        )
+        self.logger = logging.getLogger(__name__)
+
     def search_jobs(self):
-        """Perform the job search for all combinations"""
+        self.logger.info("Starting job search...")
         current_time = datetime.now(self.timezone)
         
-        # Check if we've passed the end time
-        if current_time >= self.end_time:
-            logging.info("Reached end time. Stopping the scraper.")
-            return schedule.CancelJob
-
-        # If this is our first run, look back to start_time
+        # If this is our first run, look back from start_time to current_time
         if self.last_scrape_time is None:
-            look_back_time = self.start_time
+            # Get today's start time
+            today = current_time.date()
+            start_datetime = datetime.combine(today, self.start_time)
+            start_datetime = self.timezone.localize(start_datetime)
+            
+            # Use start_time as look_back if current_time is after start_time
+            # Otherwise use previous day's start_time
+            if current_time >= start_datetime:
+                look_back_time = start_datetime
+            else:
+                yesterday = today - timedelta(days=1)
+                look_back_time = datetime.combine(yesterday, self.start_time)
+                look_back_time = self.timezone.localize(look_back_time)
         else:
-            # Otherwise, just look back one hour
+            # Otherwise, just look back one hour from current_time
             look_back_time = current_time - timedelta(hours=1)
 
         new_jobs_found = 0
         
         for job_title in self.config['job_titles']:
-            for exp_level in self.config['experience']:
-                search_query = (
-                    f'site:lever.co OR site:greenhouse.io OR '
-                    f'site:myworkdayjobs.com "{job_title}" "{exp_level}" '
-                    f'after:{int(look_back_time.timestamp())}'
+            search_query = (
+                f'site:lever.co OR site:greenhouse.io OR '
+                f'site:myworkdayjobs.com "{job_title}" '
+                f'after:{int(look_back_time.timestamp())}'
+            )
+            
+            try:
+                # Search Google
+                search_results = search(
+                    search_query,
+                    num_results=10,  # Adjust as needed
+                    lang="en"
                 )
-                
-                try:
-                    # Search Google
-                    search_results = search(
-                        search_query,
-                        num_results=10,  # Adjust as needed
-                        lang="en"
-                    )
 
-                    # Process results
-                    for link in search_results:
-                        if self.is_new_job(job_title, link):
-                            new_jobs_found += 1
-                            logging.info(f"New Job Found:")
-                            logging.info(f"Title: {job_title} ({exp_level})")
-                            logging.info(f"Link: {link}")
-                            logging.info("-" * 50)
+                # Process results
+                for link in search_results:
+                    if self.is_new_job(job_title, link):
+                        new_jobs_found += 1
+                        logging.info(f"New Job Found:")
+                        logging.info(f"Title: {job_title}")
+                        logging.info(f"Link: {link}")
+                        logging.info("-" * 50)
 
-                    # Add delay to avoid hitting rate limits
-                    time.sleep(2)
+                # Add delay to avoid hitting rate limits
+                time.sleep(2)
 
-                except Exception as e:
-                    logging.error(f"Error searching for {job_title}: {str(e)}")
+            except Exception as e:
+                logging.error(f"Error searching for {job_title}: {str(e)}")
 
         self.last_scrape_time = current_time
         logging.info(f"Scraping complete. Found {new_jobs_found} new jobs.")
 
-    def run(self):
-        """Start the scraper with scheduled runs"""
-        # Run immediately on start
-        self.search_jobs()
+    def is_within_operating_hours(self):
+        # Get current time in configured timezone
+        current_time = datetime.now(self.timezone).time()
         
-        # Schedule regular runs
+        self.logger.debug(f"Current time: {current_time}")
+        
+        # Check if current time is within operating hours
+        return self.start_time <= current_time <= self.end_time
+
+    def run(self):
+        self.logger.info("Job scraper started")
+        # Schedule the job to run at the specified frequency
         schedule.every(1).hours.do(self.search_jobs)
         
-        # Keep running until end_time
-        while datetime.now(self.timezone) < self.end_time:
-            schedule.run_pending()
-            time.sleep(60)
+        while True:
+            if self.is_within_operating_hours():
+                schedule.run_pending()
+            time.sleep(60)  # Check every minute
 
 if __name__ == "__main__":
     scraper = JobScraper()

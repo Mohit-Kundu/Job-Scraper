@@ -1,20 +1,32 @@
 {
     "scrape_freq": "1h",
-    "start_time": "2024-03-19 00:00:00",
-    "end_time": "2024-03-20 23:59:59",
+    "start_time": "09:00:00",
+    "end_time": "17:00:00",
     "time_zone": "America/New_York",
     "job_titles": [
-        "data scientist",
-        "machine learning engineer", 
-        "data analyst",
-        "software engineer",
-        "software developer",
-        "product analyst",
-        "business analyst",
-        "computer vision engineer"
-    ],
-    "experience": [
-        "entry level",
-        "associate"
+        "entry level data scientist",
+        "associate data scientist",
+        "data scientist new grad",
+        "entry level machine learning engineer",
+        "associate machine learning engineer",
+        "machine learning engineer new grad",
+        "entry level data analyst",
+        "associate data analyst",
+        "data analyst new grad",
+        "entry level software engineer",
+        "associate software engineer",
+        "software engineer new grad",
+        "entry level software developer",
+        "associate software developer",
+        "software developer new grad",
+        "entry level product analyst",
+        "associate product analyst",
+        "product analyst new grad",
+        "entry level business analyst",
+        "associate business analyst",
+        "business analyst new grad",
+        "entry level computer vision engineer",
+        "associate computer vision engineer",
+        "computer vision engineer new grad"
     ]
 } 
