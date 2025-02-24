@@ -3,6 +3,7 @@
     "start_time": "09:00:00",
     "end_time": "17:00:00",
     "time_zone": "America/New_York",
+    "region": "us",
     "job_titles": [
         "entry level data scientist",
         "associate data scientist",
