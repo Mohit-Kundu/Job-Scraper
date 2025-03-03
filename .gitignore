@@ -2,6 +2,10 @@
 logs/
 *.log
 
+# Cache
+cache/
+*.pkl
+
 # Python
 __pycache__/
 *.py[cod]

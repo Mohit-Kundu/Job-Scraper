@@ -4,6 +4,50 @@ import time
 import logging
 import os
 from datetime import datetime
+import hashlib
+import pickle
+
+class JobCache:
+    def __init__(self, cache_file='cache/jobs.pkl', max_size=100000):
+        self.cache_file = cache_file
+        self.max_size = max_size  # Maximum number of entries
+        self.cache = self.load_cache()
+        
+    def load_cache(self):
+        """Load cache from file or create new if doesn't exist"""
+        if os.path.exists(self.cache_file):
+            with open(self.cache_file, 'rb') as f:
+                return pickle.load(f)
+        return set()
+    
+    def save_cache(self):
+        """Save cache to file"""
+        os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
+        with open(self.cache_file, 'wb') as f:
+            pickle.dump(self.cache, f)
+    
+    def generate_job_hash(self, title, url, description):
+        """Generate a unique hash for a job"""
+        job_string = f"{title.lower()}{url.lower()}{description.lower()}"
+        return hashlib.md5(job_string.encode()).hexdigest()
+    
+    def cleanup_old_entries(self):
+        """Remove oldest entries if cache exceeds max size"""
+        if len(self.cache) > self.max_size:
+            # Convert to list to remove oldest entries (first entries)
+            as_list = list(self.cache)
+            self.cache = set(as_list[-self.max_size:])
+            self.save_cache()
+            
+    def is_duplicate(self, title, url, description):
+        """Check if job is a duplicate"""
+        job_hash = self.generate_job_hash(title, url, description)
+        if job_hash in self.cache:
+            return True
+        self.cache.add(job_hash)
+        self.cleanup_old_entries()  # Check size and cleanup if needed
+        self.save_cache()
+        return False
 
 def setup_logging():
     # Create logs directory if it doesn't exist
@@ -27,7 +71,7 @@ def load_config(config_path='config/metadata.json'):
         return json.load(f)
 
 def format_job_listing(job_number, job_title, result):
-    """Format a job listing in a neat way"""
+    """Format a job listing to a readable format"""
     separator = "=" * 80
     header = f"\nJob {job_number}:"
     title = f"Search Query: {job_title}"
@@ -48,9 +92,11 @@ def format_job_listing(job_number, job_title, result):
 def scrape_jobs():
     logger = setup_logging()
     config = load_config()
+    job_cache = JobCache()
     
     logger.info("🔍 Starting job search...")
     total_jobs_found = 0
+    total_duplicates = 0
     
     for job_title in config['job_titles']:
         logger.info(f"Searching for: {job_title}")
@@ -71,7 +117,20 @@ def scrape_jobs():
             )
             
             jobs_found = 0
+            duplicates = 0
+            
             for result in search_results:
+                # Check if job is duplicate
+                if job_cache.is_duplicate(
+                    result.title or '',
+                    result.url or '',
+                    result.description or ''
+                ):
+                    duplicates += 1
+                    total_duplicates += 1
+                    logger.debug(f"Duplicate job found: {result.url}")
+                    continue
+                
                 jobs_found += 1
                 total_jobs_found += 1
                 
@@ -82,7 +141,7 @@ def scrape_jobs():
                 # Add delay between searches to avoid rate limiting
                 time.sleep(1)
             
-            logger.info(f"Found {jobs_found} jobs for {job_title}")
+            logger.info(f"Found {jobs_found} new jobs and {duplicates} duplicates for {job_title}")
             
             # Add longer delay between different job title searches
             time.sleep(2)
@@ -91,7 +150,8 @@ def scrape_jobs():
             logger.error(f"Error occurred while searching for {job_title}: {str(e)}")
             continue
     
-    logger.info(f"Search complete. Total jobs found: {total_jobs_found}")
+    logger.info(f"Search complete. Total new jobs found: {total_jobs_found}")
+    logger.info(f"Total duplicate jobs skipped: {total_duplicates}")
 
 if __name__ == "__main__":
     scrape_jobs() 
